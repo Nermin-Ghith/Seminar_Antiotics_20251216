@@ -30,7 +30,7 @@ knitr::opts_chunk$set(
 
 ## Study Context
 
-Assessment of antibiotic use among patients in Malmö, Sweden, examining:
+Assessment of antibiotic use among patients in Nordic Countries (example data and case use), examining:
 
 - **Neighbourhood contextual effects** (general clustering via ICC)
 - **Explained variance** (PCV from neighbourhood and GP characteristics)
@@ -59,7 +59,7 @@ library(haven)
 
 ```{r load-data}
 # Load original data
-data_raw <- read_sav("pone.0153778.s003.sav")
+data_raw <- read_sav("Antibiotic_Use.sav")
 
 # Rename outcome variable
 data_raw <- data_raw %>%
@@ -497,7 +497,7 @@ if (icc_model2 < 0.05) {
 
 ---
 
-# References
+# References - for the methods
 
 Ghith N, Wagner P, Frølich A, Merlo J (2016) Short Term Survival after Admission for Heart Failure in Sweden: Applying Multilevel Analyses of Discriminatory Accuracy to Evaluate Institutional Performance. PLOS ONE 11(2): e0148187. https://doi.org/10.1371/journal.pone.0148187
 

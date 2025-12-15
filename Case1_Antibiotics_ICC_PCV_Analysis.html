@@ -1903,8 +1903,8 @@ Prescribing</h3>
 <h1><span class="header-section-number">1</span> Background</h1>
 <div id="study-context" class="section level2" number="1.1">
 <h2><span class="header-section-number">1.1</span> Study Context</h2>
-<p>Assessment of antibiotic use among patients in Malmö, Sweden,
-examining:</p>
+<p>Assessment of antibiotic use among patients in Nordic Countries
+(example data and case use), examining:</p>
 <ul>
 <li><strong>Neighbourhood contextual effects</strong> (general
 clustering via ICC)</li>
@@ -1933,7 +1933,7 @@ Data</h1>
 <span id="cb1-7"><a href="#cb1-7" tabindex="-1"></a><span class="fu">library</span>(kableExtra)</span>
 <span id="cb1-8"><a href="#cb1-8" tabindex="-1"></a><span class="fu">library</span>(haven)</span></code></pre></div>
 <div class="sourceCode" id="cb2"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" tabindex="-1"></a><span class="co"># Load original data</span></span>
-<span id="cb2-2"><a href="#cb2-2" tabindex="-1"></a>data_raw <span class="ot">&lt;-</span> <span class="fu">read_sav</span>(<span class="st">&quot;pone.0153778.s003.sav&quot;</span>)</span>
+<span id="cb2-2"><a href="#cb2-2" tabindex="-1"></a>data_raw <span class="ot">&lt;-</span> <span class="fu">read_sav</span>(<span class="st">&quot;Antibiotic_Use.sav&quot;</span>)</span>
 <span id="cb2-3"><a href="#cb2-3" tabindex="-1"></a></span>
 <span id="cb2-4"><a href="#cb2-4" tabindex="-1"></a><span class="co"># Rename outcome variable</span></span>
 <span id="cb2-5"><a href="#cb2-5" tabindex="-1"></a>data_raw <span class="ot">&lt;-</span> data_raw <span class="sc">%&gt;%</span></span>
@@ -2694,8 +2694,9 @@ neighbourhood</li>
 <hr />
 </div>
 </div>
-<div id="references" class="section level1" number="11">
-<h1><span class="header-section-number">11</span> References</h1>
+<div id="references---for-the-methods" class="section level1" number="11">
+<h1><span class="header-section-number">11</span> References - for the
+methods</h1>
 <p>Ghith N, Wagner P, Frølich A, Merlo J (2016) Short Term Survival
 after Admission for Heart Failure in Sweden: Applying Multilevel
 Analyses of Discriminatory Accuracy to Evaluate Institutional
@@ -2756,7 +2757,7 @@ Information</h1>
 ## [61] rstudioapi_0.17.1   minqa_1.2.8         jsonlite_2.0.0     
 ## [64] R6_2.6.1            systemfonts_1.3.1</code></pre>
 <hr />
-<p><strong>Analysis completed:</strong> 2025-12-15 20:10:38.272374<br />
+<p><strong>Analysis completed:</strong> 2025-12-15 20:29:10.179853<br />
 <strong>Sample:</strong> 30% random sample for computational
 efficiency<br />
 <strong>Focus:</strong> ICC and PCV as key metrics for contextual
