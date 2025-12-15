@@ -1,0 +1,95 @@
+# =============================================================================
+# ALTERNATIVE LOAD-DATA CHUNKS FOR CASE 1 ANALYSIS
+# =============================================================================
+# Use these instead of the full data processing chunk
+# Requires running create_30pct_sample.R first
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# OPTION 1: Load from RDS (RECOMMENDED - preserves data types)
+# -----------------------------------------------------------------------------
+```{r load-data-fast}
+library(tidyverse)
+library(kableExtra)
+
+# Load pre-saved 30% sample
+data <- readRDS("antibiotic_use_30pct_sample.rds")
+
+# Verify
+n_individuals <- nrow(data)
+n_neighbourhoods <- length(unique(data$neighbourhood))
+prevalence <- mean(data$antibiotic_use) * 100
+
+cat(sprintf("Sample: %d individuals in %d neighbourhoods\n", 
+            n_individuals, n_neighbourhoods))
+cat(sprintf("Antibiotic use: %.1f%%\n", prevalence))
+cat(sprintf("Private GP use: %.1f%%\n", mean(data$gp_private)*100))
+```
+
+# -----------------------------------------------------------------------------
+# OPTION 2: Load from CSV (if you edited in Excel)
+# -----------------------------------------------------------------------------
+```{r load-data-from-csv}
+library(tidyverse)
+library(kableExtra)
+
+# Load from CSV
+data <- read.csv("antibiotic_use_30pct_sample.csv")
+
+# Re-create factors
+data <- data %>%
+  mutate(
+    neighbourhood = as.factor(neighbourhood),
+    age_group = factor(age_group, 
+                       levels = c("35-39", "40-44", "45-49", 
+                                 "50-54", "55-59", "60-64")),
+    sex = factor(sex, levels = c("Female", "Male"))
+  )
+
+# Verify
+n_individuals <- nrow(data)
+n_neighbourhoods <- length(unique(data$neighbourhood))
+prevalence <- mean(data$antibiotic_use) * 100
+
+cat(sprintf("Sample: %d individuals in %d neighbourhoods\n", 
+            n_individuals, n_neighbourhoods))
+cat(sprintf("Antibiotic use: %.1f%%\n", prevalence))
+cat(sprintf("Private GP use: %.1f%%\n", mean(data$gp_private)*100))
+```
+
+# -----------------------------------------------------------------------------
+# OPTION 3: Load from RData
+# -----------------------------------------------------------------------------
+```{r load-data-rdata}
+library(tidyverse)
+library(kableExtra)
+
+# Load from RData file
+load("antibiotic_use_30pct_sample.RData")
+
+# Verify (data object is loaded)
+n_individuals <- nrow(data)
+n_neighbourhoods <- length(unique(data$neighbourhood))
+prevalence <- mean(data$antibiotic_use) * 100
+
+cat(sprintf("Sample: %d individuals in %d neighbourhoods\n", 
+            n_individuals, n_neighbourhoods))
+cat(sprintf("Antibiotic use: %.1f%%\n", prevalence))
+cat(sprintf("Private GP use: %.1f%%\n", mean(data$gp_private)*100))
+```
+
+# =============================================================================
+# USAGE INSTRUCTIONS
+# =============================================================================
+# 
+# 1. First time: Run create_30pct_sample.R to create the saved files
+# 
+# 2. In your analysis RMD: Replace the entire load-data chunk with ONE of
+#    the options above
+# 
+# 3. Benefits:
+#    - Faster loading (no SPSS reading, no sampling)
+#    - Consistent results (same random sample every time)
+#    - Can share the sample file with collaborators
+# 
+# =============================================================================

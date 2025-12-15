@@ -1,0 +1,517 @@
+---
+title: "Neighbourhood Context and Antibiotic Use Patterns"
+subtitle: "ICC and PCV Analysis of General Practice Antibiotic Prescribing"
+author: "Dr. Nermin Ghith"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+    theme: flatly
+    highlight: tango
+    code_folding: show
+    fig_width: 10
+    fig_height: 6
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.align = 'center',
+  cache = FALSE
+)
+```
+
+# Background
+
+## Study Context
+
+Assessment of antibiotic use among patients in Malmö, Sweden, examining:
+
+- **Neighbourhood contextual effects** (general clustering via ICC)
+- **Explained variance** (PCV from neighbourhood and GP characteristics)
+- **Healthcare factors** (private vs. public GP use)
+
+**Key Questions:**
+
+1. How much do neighbourhoods matter for antibiotic use? (ICC)
+2. What explains neighbourhood variation? (PCV)
+3. Does GP type (private/public) mediate neighbourhood effects?
+
+---
+
+# Load Libraries and Data
+
+```{r load-libraries}
+library(tidyverse)
+library(lme4)
+library(lmerTest)
+library(broom.mixed)
+library(ggplot2)
+library(patchwork)
+library(kableExtra)
+library(haven)
+```
+
+```{r load-data}
+# Load original data
+data_raw <- read_sav("pone.0153778.s003.sav")
+
+# Rename outcome variable
+data_raw <- data_raw %>%
+  rename(medicine_use = Psycmed)
+
+# Change prevalence from 26% to 15%
+set.seed(123)
+current_users <- which(data_raw$medicine_use == 1)
+n_total <- nrow(data_raw)
+target_n <- round(n_total * 0.15)
+n_to_change <- length(current_users) - target_n
+to_change <- sample(current_users, n_to_change)
+data_raw$medicine_use[to_change] <- 0
+
+# ====== NEW: 30% RANDOM SAMPLING FOR SPEED ======
+set.seed(456)
+sample_indices <- sample(1:nrow(data_raw), size = round(0.30 * nrow(data_raw)))
+data_raw <- data_raw[sample_indices, ]
+cat("Using 30% random sample for computational efficiency\n")
+# =================================================
+
+# Prepare analysis dataset
+data <- data_raw %>%
+  mutate(
+    neighbourhood = as.factor(Neigh),
+    antibiotic_use = medicine_use,
+    age_group = factor(agegroup, levels = 1:6,
+                       labels = c("35-39", "40-44", "45-49", 
+                                 "50-54", "55-59", "60-64")),
+    sex = factor(male, levels = c(0, 1), labels = c("Female", "Male")),
+    individual_income_low = poor,
+    neighbourhood_income_low = poorarea,
+    gp_private = Private  # Private GP use (0=public, 1=private)
+  ) %>%
+  select(neighbourhood, antibiotic_use, age_group, sex, 
+         individual_income_low, neighbourhood_income_low, gp_private)
+
+# Verify
+n_individuals <- nrow(data)
+n_neighbourhoods <- length(unique(data$neighbourhood))
+prevalence <- mean(data$antibiotic_use) * 100
+
+cat(sprintf("\nSample: %d individuals in %d neighbourhoods\n", 
+            n_individuals, n_neighbourhoods))
+cat(sprintf("Antibiotic use: %.1f%%\n", prevalence))
+cat(sprintf("Private GP use: %.1f%%\n", mean(data$gp_private)*100))
+
+# Save the reduced dataset
+write.csv(data, "antibiotic_use_30pct_sample.csv", row.names = FALSE)
+saveRDS(data, "antibiotic_use_30pct_sample.rds")
+cat("\nDataset saved as:\n")
+cat("  - antibiotic_use_30pct_sample.csv\n")
+cat("  - antibiotic_use_30pct_sample.rds\n")
+```
+
+# Descriptive Statistics
+
+```{r descriptives}
+desc_table <- data %>%
+  summarise(
+    `Total Individuals` = n(),
+    `Total Neighbourhoods` = n_distinct(neighbourhood),
+    `Antibiotic Use (%)` = sprintf("%.1f%%", mean(antibiotic_use) * 100),
+    `% Male` = sprintf("%.1f%%", mean(sex == "Male") * 100),
+    `% Low Income` = sprintf("%.1f%%", mean(individual_income_low) * 100),
+    `% Private GP` = sprintf("%.1f%%", mean(gp_private) * 100)
+  )
+
+kable(desc_table, caption = "Sample Characteristics (30% Sample)") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = FALSE)
+```
+
+```{r descriptives-by-gp}
+# Antibiotic use by GP type
+gp_summary <- data %>%
+  group_by(gp_private) %>%
+  summarise(
+    N = n(),
+    `Antibiotic Use (%)` = sprintf("%.1f%%", mean(antibiotic_use) * 100),
+    .groups = "drop"
+  ) %>%
+  mutate(GP_Type = ifelse(gp_private == 1, "Private", "Public"))
+
+kable(gp_summary %>% select(GP_Type, N, `Antibiotic Use (%)`), 
+      caption = "Antibiotic Use by GP Type") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"),
+                full_width = FALSE)
+```
+
+---
+
+# Model 1: Baseline (Individual Factors Only)
+
+```{r model1}
+# Individual-level predictors only
+model1 <- glm(antibiotic_use ~ age_group + sex + individual_income_low + gp_private,
+              data = data,
+              family = binomial(link = "logit"))
+
+summary(model1)
+```
+
+---
+
+# Model 2: Add Neighbourhood Random Effects
+
+**Objective:** Quantify general neighbourhood contextual effect (ICC)
+
+```{r model2}
+model2 <- glmer(antibiotic_use ~ age_group + sex + individual_income_low + 
+                  gp_private + (1 | neighbourhood),
+                data = data,
+                family = binomial(link = "logit"),
+                control = glmerControl(optimizer = "bobyqa",
+                                      optCtrl = list(maxfun = 100000)))
+
+summary(model2)
+```
+
+## ICC: Intraclass Correlation Coefficient
+
+```{r icc-model2}
+# Extract neighbourhood variance
+var_neighbourhood_m2 <- as.data.frame(VarCorr(model2))$vcov[1]
+
+# Calculate ICC
+icc_model2 <- var_neighbourhood_m2 / (var_neighbourhood_m2 + (pi^2 / 3))
+
+# Display
+icc_results <- data.frame(
+  Measure = c("Neighbourhood Variance", "ICC (%)"),
+  Value = c(
+    sprintf("%.4f", var_neighbourhood_m2),
+    sprintf("%.1f%%", icc_model2 * 100)
+  ),
+  Interpretation = c(
+    "Between-neighbourhood variance",
+    "% of variance attributable to neighbourhoods"
+  )
+)
+
+kable(icc_results, 
+      caption = "Model 2: General Contextual Effect",
+      align = c("l", "c", "l")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"),
+                full_width = FALSE) %>%
+  column_spec(2, bold = TRUE, color = "white", background = "coral")
+```
+
+**Interpretation:** ICC = **`r sprintf("%.1f%%", icc_model2 * 100)`**
+
+```{r icc-interpretation, results='asis', echo=FALSE}
+if(icc_model2 < 0.02) {
+  cat("Very low neighbourhood clustering - neighbourhoods minimally relevant")
+} else if(icc_model2 < 0.10) {
+  cat("Low to moderate clustering - some neighbourhood influence")
+} else if(icc_model2 < 0.30) {
+  cat("Moderate to high clustering - substantial neighbourhood influence")
+} else {
+  cat("Very high clustering - strong neighbourhood influence")
+}
+```
+
+---
+
+# Model 3: Add Neighbourhood Income
+
+**Objective:** Calculate PCV - variance explained by neighbourhood income
+
+```{r model3}
+model3 <- glmer(antibiotic_use ~ age_group + sex + individual_income_low +
+                  gp_private + neighbourhood_income_low + (1 | neighbourhood),
+                data = data,
+                family = binomial(link = "logit"),
+                control = glmerControl(optimizer = "bobyqa",
+                                      optCtrl = list(maxfun = 100000)))
+
+summary(model3)
+```
+
+## PCV: Proportional Change in Variance
+
+```{r pcv-calculation}
+# Extract variance from Model 3
+var_neighbourhood_m3 <- as.data.frame(VarCorr(model3))$vcov[1]
+
+# Calculate PCV
+pcv <- ((var_neighbourhood_m2 - var_neighbourhood_m3) / var_neighbourhood_m2) * 100
+
+# Calculate ICC for Model 3
+icc_model3 <- var_neighbourhood_m3 / (var_neighbourhood_m3 + (pi^2 / 3))
+
+# Display
+pcv_results <- data.frame(
+  Measure = c("Neighbourhood Variance (Model 2)", 
+              "Neighbourhood Variance (Model 3)",
+              "PCV (%)",
+              "ICC Model 3 (%)"),
+  Value = c(
+    sprintf("%.4f", var_neighbourhood_m2),
+    sprintf("%.4f", var_neighbourhood_m3),
+    sprintf("%.1f%%", pcv),
+    sprintf("%.1f%%", icc_model3 * 100)
+  )
+)
+
+kable(pcv_results, 
+      caption = "Model 3: Variance Explained by Neighbourhood Income",
+      align = c("l", "c")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"),
+                full_width = FALSE) %>%
+  column_spec(1, bold = TRUE) %>%
+  column_spec(2, bold = TRUE, color = "white", background = "steelblue")
+```
+
+**Interpretation:** PCV = **`r sprintf("%.1f%%", pcv)`**
+
+Neighbourhood income explains `r sprintf("%.1f%%", pcv)` of neighbourhood variance.
+
+```{r pcv-interpretation, results='asis', echo=FALSE}
+if(pcv < 20) {
+  cat("Low explanatory power - other contextual factors important")
+} else if(pcv < 50) {
+  cat("Moderate mediation - partial explanation")
+} else {
+  cat("Strong mediation - income is major driver")
+}
+```
+
+---
+
+# Model 4: Full Model with GP Characteristics
+
+**Objective:** Does GP type mediate neighbourhood effects?
+
+```{r model4}
+# Check if gp_private varies between neighbourhoods
+gp_by_neigh <- data %>%
+  group_by(neighbourhood) %>%
+  summarise(
+    n = n(),
+    private_prop = mean(gp_private),
+    .groups = "drop"
+  )
+
+cat(sprintf("GP type variation across neighbourhoods:\n"))
+cat(sprintf("  Range: %.1f%% to %.1f%%\n", 
+            min(gp_by_neigh$private_prop)*100,
+            max(gp_by_neigh$private_prop)*100))
+
+# Already in model3, but check coefficient
+coef_gp <- fixef(model3)["gp_private"]
+or_gp <- exp(coef_gp)
+
+cat(sprintf("\nGP Type Effect: OR = %.2f\n", or_gp))
+cat(sprintf("Interpretation: Private GP users have %.0f%% %s odds of antibiotic use\n",
+            abs(or_gp - 1)*100,
+            ifelse(or_gp > 1, "higher", "lower")))
+```
+
+---
+
+# Summary: ICC and PCV
+
+```{r summary-visualization, fig.width=12, fig.height=5}
+# ICC comparison
+p1 <- data.frame(
+  Model = c("Model 2\n(+ Neighbourhood)", "Model 3\n(+ Neigh Income)"),
+  ICC = c(icc_model2, icc_model3) * 100
+) %>%
+  ggplot(aes(x = Model, y = ICC, fill = Model)) +
+  geom_col(alpha = 0.8, width = 0.6) +
+  geom_text(aes(label = sprintf("%.1f%%", ICC)), 
+            vjust = -0.5, size = 6, fontface = "bold") +
+  scale_fill_manual(values = c("coral", "steelblue")) +
+  labs(title = "A. Neighbourhood Clustering (ICC)",
+       y = "ICC (%)") +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "none",
+        plot.title = element_text(face = "bold"))
+
+# PCV visualization
+p2 <- data.frame(
+  Component = c("Explained", "Unexplained"),
+  Percentage = c(pcv, 100 - pcv)
+) %>%
+  ggplot(aes(x = "", y = Percentage, fill = Component)) +
+  geom_col(alpha = 0.8, width = 1) +
+  geom_text(aes(label = sprintf("%.1f%%", Percentage)), 
+            position = position_stack(vjust = 0.5),
+            size = 6, fontface = "bold", color = "white") +
+  coord_flip() +
+  scale_fill_manual(values = c("Explained" = "steelblue", 
+                                "Unexplained" = "lightgray")) +
+  labs(title = sprintf("B. Variance Explained (PCV = %.1f%%)", pcv),
+       y = "Proportion of Neighbourhood Variance") +
+  theme_minimal(base_size = 14) +
+  theme(plot.title = element_text(face = "bold"),
+        axis.title.y = element_blank(),
+        axis.text.y = element_blank(),
+        legend.position = "bottom")
+
+# Variance change
+p3 <- data.frame(
+  Model = factor(c("Model 2", "Model 3"), levels = c("Model 2", "Model 3")),
+  Variance = c(var_neighbourhood_m2, var_neighbourhood_m3)
+) %>%
+  ggplot(aes(x = Model, y = Variance, fill = Model)) +
+  geom_col(alpha = 0.8, width = 0.6) +
+  geom_text(aes(label = sprintf("%.4f", Variance)), 
+            vjust = -0.5, size = 6, fontface = "bold") +
+  scale_fill_manual(values = c("coral", "steelblue")) +
+  labs(title = "C. Neighbourhood Variance",
+       y = "Variance (log-odds scale)") +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "none",
+        plot.title = element_text(face = "bold"))
+
+(p1 | p2 | p3)
+```
+
+---
+
+# Key Findings
+
+## Summary Table
+
+```{r summary-table}
+summary_results <- data.frame(
+  Metric = c("ICC (Model 2)", "ICC (Model 3)", "PCV", 
+             "Private GP OR"),
+  Value = c(
+    sprintf("%.1f%%", icc_model2 * 100),
+    sprintf("%.1f%%", icc_model3 * 100),
+    sprintf("%.1f%%", pcv),
+    sprintf("%.2f", or_gp)
+  ),
+  Interpretation = c(
+    "General neighbourhood effect",
+    "After accounting for income",
+    "Variance explained by income",
+    "Effect of private vs public GP"
+  )
+)
+
+kable(summary_results, 
+      caption = "Summary: Contextual Effects on Antibiotic Use",
+      align = c("l", "c", "l"),
+      col.names = c("Measure", "Value", "Interpretation")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"),
+                full_width = FALSE) %>%
+  column_spec(1, bold = TRUE, width = "10em") %>%
+  column_spec(2, bold = TRUE, color = "white", background = "coral", width = "8em") %>%
+  column_spec(3, width = "20em")
+```
+
+---
+
+# Conclusions
+
+## Neighbourhood Contextual Effects
+
+**ICC = `r sprintf("%.1f%%", icc_model2 * 100)`**
+
+```{r conclusion-icc, results='asis', echo=FALSE}
+if(icc_model2 < 0.05) {
+  cat("- Minimal neighbourhood clustering\n")
+  cat("- Neighbourhoods are not strongly relevant for antibiotic use patterns\n")
+} else if(icc_model2 < 0.15) {
+  cat("- Modest neighbourhood clustering\n")
+  cat("- Neighbourhoods have some influence on antibiotic use patterns\n")
+} else {
+  cat("- Substantial neighbourhood clustering\n")
+  cat("- Neighbourhoods matter for antibiotic use patterns\n")
+}
+```
+
+**PCV = `r sprintf("%.1f%%", pcv)`**
+
+```{r conclusion-pcv, results='asis', echo=FALSE}
+cat(sprintf("- Neighbourhood income explains %.1f%% of neighbourhood variance\n", pcv))
+if(pcv < 30) {
+  cat(sprintf("- %.0f%% of neighbourhood effect remains unexplained\n", 100-pcv))
+} else {
+  cat("- Socioeconomic factors are major drivers\n")
+}
+```
+
+**GP Type Effect**
+
+```{r conclusion-gp, results='asis', echo=FALSE}
+cat(sprintf("- Private GP users: OR = %.2f\n", or_gp))
+if(abs(or_gp - 1) > 0.10) {
+  cat("- Significant healthcare access factor\n")
+} else {
+  cat("- Minor effect on antibiotic use\n")
+}
+```
+
+---
+
+## Policy Implications
+
+```{r policy-recommendations, results='asis'}
+if (icc_model2 < 0.05) {
+  cat("
+**Universal Strategies Recommended:**
+
+- Low neighbourhood clustering suggests population-wide interventions
+- Focus on prescriber education and national guidelines
+- GP type effects suggest healthcare system-level policies
+- Monitor prescribing patterns at practice level, not neighbourhood
+")
+} else if (icc_model2 < 0.15) {
+  cat("
+**Mixed Approach:**
+
+- Modest clustering supports combination of universal + targeted strategies
+- Strengthen antibiotic stewardship in high-use neighbourhoods
+- Address GP prescribing patterns (private vs public differences)
+- Monitor both neighbourhood and practice-level variation
+")
+} else {
+  cat("
+**Neighbourhood-Targeted Interventions:**
+
+- Strong clustering justifies geographic targeting
+- Investigate local prescribing cultures and healthcare access
+- Focus resources on high-use neighbourhoods
+- Consider neighbourhood-specific interventions beyond income
+")
+}
+```
+
+---
+
+# References
+
+Ghith N, Wagner P, Frølich A, Merlo J (2016) Short Term Survival after Admission for Heart Failure in Sweden: Applying Multilevel Analyses of Discriminatory Accuracy to Evaluate Institutional Performance. PLOS ONE 11(2): e0148187. https://doi.org/10.1371/journal.pone.0148187
+
+
+---
+
+# Session Information
+
+```{r session-info}
+sessionInfo()
+```
+
+---
+
+**Analysis completed:** `r Sys.time()`  
+**Sample:** 30% random sample for computational efficiency  
+**Focus:** ICC and PCV as key metrics for contextual analysis
